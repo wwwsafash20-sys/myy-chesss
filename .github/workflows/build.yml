@@ -1,0 +1,46 @@
+name: ساخت APK
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب پایتون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: نصب Buildozer
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential \
+            git \
+            zip \
+            unzip \
+            openjdk-17-jdk \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libffi-dev \
+            libssl-dev
+          pip install buildozer cython
+
+      - name: ساخت APK
+        run: buildozer android debug
+
+      - name: دریافت APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: chess-apk
+          path: bin/*.apk
