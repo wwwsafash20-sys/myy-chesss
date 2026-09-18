@@ -1,0 +1,815 @@
+import pygame
+
+pygame.init()
+
+SIZE = 640
+CELL = SIZE // 8
+
+screen = pygame.display.set_mode((SIZE, SIZE))
+pygame.display.set_caption("Chess")
+
+LIGHT = (240, 217, 181)
+DARK = (181, 136, 99)
+
+WHITE = (245, 245, 245)
+BLACK = (25, 25, 25)
+
+GREEN = (70, 180, 90)
+RED = (220, 70, 70)
+YELLOW = (240, 200, 60)
+
+board = [
+    ["r","n","b","q","k","b","n","r"],
+    ["p","p","p","p","p","p","p","p"],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["P","P","P","P","P","P","P","P"],
+    ["R","N","B","Q","K","B","N","R"]
+]
+
+turn = "white"
+selected = None
+
+white_king_moved = False
+black_king_moved = False
+
+white_rook_left_moved = False
+white_rook_right_moved = False
+black_rook_left_moved = False
+black_rook_right_moved = False
+
+en_passant = None
+
+game_over = False
+message = ""
+
+
+def piece_color(piece):
+    if piece == "":
+        return None
+    return "white" if piece.isupper() else "black"
+
+
+def draw_pawn(surface, x, y, color):
+    pygame.draw.circle(surface, color, (x, y - 12), 14)
+    pygame.draw.ellipse(surface, color, (x - 22, y, 44, 28))
+    pygame.draw.rect(surface, color, (x - 17, y + 18, 34, 12))
+
+
+def draw_rook(surface, x, y, color):
+    pygame.draw.rect(surface, color, (x - 23, y - 10, 46, 48))
+    pygame.draw.rect(surface, color, (x - 28, y - 25, 56, 18))
+
+    for dx in (-18, 0, 18):
+        pygame.draw.rect(
+            surface,
+            color,
+            (x + dx - 6, y - 34, 12, 12)
+        )
+
+
+def draw_bishop(surface, x, y, color):
+    points = [
+        (x, y - 38),
+        (x - 25, y + 25),
+        (x + 25, y + 25)
+    ]
+
+    pygame.draw.polygon(surface, color, points)
+    pygame.draw.circle(surface, color, (x, y - 28), 11)
+
+    pygame.draw.line(
+        surface,
+        DARK if color == WHITE else LIGHT,
+        (x - 5, y - 35),
+        (x + 5, y - 20),
+        4
+    )
+
+
+def draw_knight(surface, x, y, color):
+    points = [
+        (x - 25, y + 28),
+        (x - 20, y - 20),
+        (x - 5, y - 38),
+        (x + 18, y - 25),
+        (x + 25, y - 2),
+        (x + 12, y + 10),
+        (x + 25, y + 28)
+    ]
+
+    pygame.draw.polygon(surface, color, points)
+
+    pygame.draw.circle(
+        surface,
+        DARK if color == WHITE else LIGHT,
+        (x + 8, y - 20),
+        3
+    )
+
+
+def draw_queen(surface, x, y, color):
+    pygame.draw.circle(surface, color, (x - 18, y - 25), 8)
+    pygame.draw.circle(surface, color, (x, y - 34), 8)
+    pygame.draw.circle(surface, color, (x + 18, y - 25), 8)
+
+    points = [
+        (x - 25, y - 20),
+        (x - 15, y + 25),
+        (x + 15, y + 25),
+        (x + 25, y - 20),
+        (x, y - 5)
+    ]
+
+    pygame.draw.polygon(surface, color, points)
+    pygame.draw.rect(surface, color, (x - 23, y + 20, 46, 12))
+
+
+def draw_king(surface, x, y, color):
+    pygame.draw.rect(surface, color, (x - 22, y - 5, 44, 42))
+    pygame.draw.rect(surface, color, (x - 27, y + 28, 54, 12))
+
+    pygame.draw.rect(surface, color, (x - 6, y - 38, 12, 30))
+    pygame.draw.rect(surface, color, (x - 16, y - 28, 32, 10))
+
+
+def draw_piece(surface, piece, row, col):
+    if piece == "":
+        return
+
+    x = col * CELL + CELL // 2
+    y = row * CELL + CELL // 2
+
+    color = WHITE if piece.isupper() else BLACK
+
+    if piece.lower() == "p":
+        draw_pawn(surface, x, y, color)
+    elif piece.lower() == "r":
+        draw_rook(surface, x, y, color)
+    elif piece.lower() == "n":
+        draw_knight(surface, x, y, color)
+    elif piece.lower() == "b":
+        draw_bishop(surface, x, y, color)
+    elif piece.lower() == "q":
+        draw_queen(surface, x, y, color)
+    elif piece.lower() == "k":
+        draw_king(surface, x, y, color)
+
+
+def draw_pieces(surface):
+    for r in range(8):
+        for c in range(8):
+            draw_piece(surface, board[r][c], r, c)
+
+
+def draw_board(surface):
+    for r in range(8):
+        for c in range(8):
+            color = LIGHT if (r + c) % 2 == 0 else DARK
+
+            pygame.draw.rect(
+                surface,
+                color,
+                (c * CELL, r * CELL, CELL, CELL)
+            )
+
+
+def find_king(color):
+    target = "K" if color == "white" else "k"
+
+    for r in range(8):
+        for c in range(8):
+            if board[r][c] == target:
+                return r, c
+
+    return None
+
+
+def square_attacked(row, col, by_color):
+
+    if by_color == "white":
+        pawn_row = row + 1
+        pawn = "P"
+    else:
+        pawn_row = row - 1
+        pawn = "p"
+
+    if 0 <= pawn_row < 8:
+        for dc in (-1, 1):
+            c = col + dc
+
+            if 0 <= c < 8:
+                if board[pawn_row][c] == pawn:
+                    return True
+
+    knight = "N" if by_color == "white" else "n"
+
+    knight_moves = [
+        (-2,-1), (-2,1),
+        (-1,-2), (-1,2),
+        (1,-2), (1,2),
+        (2,-1), (2,1)
+    ]
+
+    for dr, dc in knight_moves:
+        r = row + dr
+        c = col + dc
+
+        if 0 <= r < 8 and 0 <= c < 8:
+            if board[r][c] == knight:
+                return True
+
+    bishop = "B" if by_color == "white" else "b"
+    queen = "Q" if by_color == "white" else "q"
+
+    for dr, dc in [(-1,-1),(-1,1),(1,-1),(1,1)]:
+        r = row + dr
+        c = col + dc
+
+        while 0 <= r < 8 and 0 <= c < 8:
+            p = board[r][c]
+
+            if p != "":
+                if p == bishop or p == queen:
+                    return True
+                break
+
+            r += dr
+            c += dc
+
+    rook = "R" if by_color == "white" else "r"
+
+    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+        r = row + dr
+        c = col + dc
+
+        while 0 <= r < 8 and 0 <= c < 8:
+            p = board[r][c]
+
+            if p != "":
+                if p == rook or p == queen:
+                    return True
+                break
+
+            r += dr
+            c += dc
+
+    king = "K" if by_color == "white" else "k"
+
+    for dr in (-1,0,1):
+        for dc in (-1,0,1):
+            if dr == 0 and dc == 0:
+                continue
+
+            r = row + dr
+            c = col + dc
+
+            if 0 <= r < 8 and 0 <= c < 8:
+                if board[r][c] == king:
+                    return True
+
+    return False
+
+
+def in_check(color):
+    king = find_king(color)
+
+    if king is None:
+        return True
+
+    enemy = "black" if color == "white" else "white"
+
+    return square_attacked(
+        king[0],
+        king[1],
+        enemy
+    )
+
+
+def pseudo_moves(row, col):
+
+    piece = board[row][col]
+
+    if piece == "":
+        return []
+
+    color = piece_color(piece)
+    moves = []
+
+    p = piece.lower()
+
+    # سرباز
+    if p == "p":
+
+        direction = -1 if color == "white" else 1
+        start = 6 if color == "white" else 1
+
+        nr = row + direction
+
+        if 0 <= nr < 8:
+
+            if board[nr][col] == "":
+                moves.append((nr, col))
+
+                if row == start:
+                    nr2 = row + 2 * direction
+
+                    if board[nr2][col] == "":
+                        moves.append((nr2, col))
+
+            for dc in (-1,1):
+                nc = col + dc
+
+                if 0 <= nc < 8:
+
+                    if (
+                        board[nr][nc] != ""
+                        and piece_color(board[nr][nc]) != color
+                    ):
+                        moves.append((nr,nc))
+
+                    if en_passant == (nr,nc):
+                        moves.append((nr,nc))
+
+    # اسب
+    elif p == "n":
+
+        for dr, dc in [
+            (-2,-1),(-2,1),
+            (-1,-2),(-1,2),
+            (1,-2),(1,2),
+            (2,-1),(2,1)
+        ]:
+
+            r = row + dr
+            c = col + dc
+
+            if 0 <= r < 8 and 0 <= c < 8:
+
+                if (
+                    board[r][c] == ""
+                    or piece_color(board[r][c]) != color
+                ):
+                    moves.append((r,c))
+
+    # فیل
+    elif p == "b":
+
+        for dr, dc in [
+            (-1,-1),(-1,1),
+            (1,-1),(1,1)
+        ]:
+
+            r = row + dr
+            c = col + dc
+
+            while 0 <= r < 8 and 0 <= c < 8:
+
+                if board[r][c] == "":
+                    moves.append((r,c))
+
+                else:
+                    if piece_color(board[r][c]) != color:
+                        moves.append((r,c))
+                    break
+
+                r += dr
+                c += dc
+
+    # رخ
+    elif p == "r":
+
+        for dr, dc in [
+            (-1,0),(1,0),
+            (0,-1),(0,1)
+        ]:
+
+            r = row + dr
+            c = col + dc
+
+            while 0 <= r < 8 and 0 <= c < 8:
+
+                if board[r][c] == "":
+                    moves.append((r,c))
+
+                else:
+                    if piece_color(board[r][c]) != color:
+                        moves.append((r,c))
+                    break
+
+                r += dr
+                c += dc
+
+    # وزیر
+    elif p == "q":
+
+        for dr, dc in [
+            (-1,-1),(-1,1),
+            (1,-1),(1,1),
+            (-1,0),(1,0),
+            (0,-1),(0,1)
+        ]:
+
+            r = row + dr
+            c = col + dc
+
+            while 0 <= r < 8 and 0 <= c < 8:
+
+                if board[r][c] == "":
+                    moves.append((r,c))
+
+                else:
+                    if piece_color(board[r][c]) != color:
+                        moves.append((r,c))
+                    break
+
+                r += dr
+                c += dc
+
+    # شاه
+    elif p == "k":
+
+        for dr in (-1,0,1):
+            for dc in (-1,0,1):
+
+                if dr == 0 and dc == 0:
+                    continue
+
+                r = row + dr
+                c = col + dc
+
+                if 0 <= r < 8 and 0 <= c < 8:
+
+                    if (
+                        board[r][c] == ""
+                        or piece_color(board[r][c]) != color
+                    ):
+                        moves.append((r,c))
+
+        # قلعه
+        if color == "white" and not white_king_moved:
+
+            if (
+                not white_rook_right_moved
+                and board[7][5] == ""
+                and board[7][6] == ""
+                and not in_check("white")
+                and not square_attacked(7,5,"black")
+                and not square_attacked(7,6,"black")
+            ):
+                moves.append((7,6))
+
+            if (
+                not white_rook_left_moved
+                and board[7][1] == ""
+                and board[7][2] == ""
+                and board[7][3] == ""
+                and not in_check("white")
+                and not square_attacked(7,3,"black")
+                and not square_attacked(7,2,"black")
+            ):
+                moves.append((7,2))
+
+        if color == "black" and not black_king_moved:
+
+            if (
+                not black_rook_right_moved
+                and board[0][5] == ""
+                and board[0][6] == ""
+                and not in_check("black")
+                and not square_attacked(0,5,"white")
+                and not square_attacked(0,6,"white")
+            ):
+                moves.append((0,6))
+
+            if (
+                not black_rook_left_moved
+                and board[0][1] == ""
+                and board[0][2] == ""
+                and board[0][3] == ""
+                and not in_check("black")
+                and not square_attacked(0,3,"white")
+                and not square_attacked(0,2,"white")
+            ):
+                moves.append((0,2))
+
+    return moves
+
+
+def legal_moves(row, col):
+
+    piece = board[row][col]
+
+    if piece == "":
+        return []
+
+    color = piece_color(piece)
+    result = []
+
+    for tr, tc in pseudo_moves(row,col):
+
+        old = board[tr][tc]
+        ep_piece = None
+
+        if (
+            piece.lower() == "p"
+            and en_passant == (tr,tc)
+            and old == ""
+        ):
+
+            ep_row = tr + 1 if color == "white" else tr - 1
+
+            ep_piece = board[ep_row][tc]
+            board[ep_row][tc] = ""
+
+        board[tr][tc] = piece
+        board[row][col] = ""
+
+        safe = not in_check(color)
+
+        board[row][col] = piece
+        board[tr][tc] = old
+
+        if ep_piece is not None:
+            ep_row = tr + 1 if color == "white" else tr - 1
+            board[ep_row][tc] = ep_piece
+
+        if safe:
+            result.append((tr,tc))
+
+    return result
+
+
+def has_legal_moves(color):
+
+    for r in range(8):
+        for c in range(8):
+
+            if board[r][c] != "":
+                if piece_color(board[r][c]) == color:
+
+                    if legal_moves(r,c):
+                        return True
+
+    return False
+
+
+def move_piece(fr,fc,tr,tc):
+
+    global turn
+    global en_passant
+
+    global white_king_moved
+    global black_king_moved
+
+    global white_rook_left_moved
+    global white_rook_right_moved
+    global black_rook_left_moved
+    global black_rook_right_moved
+
+    piece = board[fr][fc]
+    target = board[tr][tc]
+
+    color = piece_color(piece)
+
+    # آن پاسان
+    if (
+        piece.lower() == "p"
+        and en_passant == (tr,tc)
+        and target == ""
+    ):
+
+        capture_row = tr + 1 if color == "white" else tr - 1
+        board[capture_row][tc] = ""
+
+    board[tr][tc] = piece
+    board[fr][fc] = ""
+
+    # شاه سفید
+    if piece == "K":
+
+        white_king_moved = True
+
+        if (fr,fc,tr,tc) == (7,4,7,6):
+            board[7][5] = board[7][7]
+            board[7][7] = ""
+
+        elif (fr,fc,tr,tc) == (7,4,7,2):
+            board[7][3] = board[7][0]
+            board[7][0] = ""
+
+    # شاه سیاه
+    elif piece == "k":
+
+        black_king_moved = True
+
+        if (fr,fc,tr,tc) == (0,4,0,6):
+            board[0][5] = board[0][7]
+            board[0][7] = ""
+
+        elif (fr,fc,tr,tc) == (0,4,0,2):
+            board[0][3] = board[0][0]
+            board[0][0] = ""
+
+    # رخ سفید
+    if piece == "R":
+
+        if (fr,fc) == (7,0):
+            white_rook_left_moved = True
+
+        if (fr,fc) == (7,7):
+            white_rook_right_moved = True
+
+    # رخ سیاه
+    if piece == "r":
+
+        if (fr,fc) == (0,0):
+            black_rook_left_moved = True
+
+        if (fr,fc) == (0,7):
+            black_rook_right_moved = True
+
+    # گرفتن رخ
+    if target == "R":
+
+        if (tr,tc) == (7,0):
+            white_rook_left_moved = True
+
+        if (tr,tc) == (7,7):
+            white_rook_right_moved = True
+
+    if target == "r":
+
+        if (tr,tc) == (0,0):
+            black_rook_left_moved = True
+
+        if (tr,tc) == (0,7):
+            black_rook_right_moved = True
+
+    en_passant = None
+
+    if piece.lower() == "p":
+
+        if abs(tr-fr) == 2:
+            en_passant = ((fr+tr)//2, fc)
+
+    turn = "black" if turn == "white" else "white"
+
+
+def promotion():
+
+    for c in range(8):
+
+        if board[0][c] == "P":
+            board[0][c] = "Q"
+
+        if board[7][c] == "p":
+            board[7][c] = "q"
+
+
+def get_square(pos):
+
+    x,y = pos
+
+    col = x // CELL
+    row = y // CELL
+
+    if 0 <= row < 8 and 0 <= col < 8:
+        return row,col
+
+    return None
+
+
+running = True
+clock = pygame.time.Clock()
+
+while running:
+
+    for event in pygame.event.get():
+
+        if event.type == pygame.QUIT:
+            running = False
+
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+
+            if game_over:
+                continue
+
+            square = get_square(event.pos)
+
+            if square is None:
+                continue
+
+            row,col = square
+
+            if selected is None:
+
+                piece = board[row][col]
+
+                if (
+                    piece != ""
+                    and piece_color(piece) == turn
+                ):
+                    selected = (row,col)
+
+            else:
+
+                sr,sc = selected
+
+                if (row,col) in legal_moves(sr,sc):
+
+                    move_piece(
+                        sr,sc,row,col
+                    )
+
+                    promotion()
+
+                    if not has_legal_moves(turn):
+
+                        game_over = True
+
+                        if in_check(turn):
+
+                            if turn == "white":
+                                message = "CHECKMATE - BLACK WINS"
+                            else:
+                                message = "CHECKMATE - WHITE WINS"
+
+                        else:
+                            message = "STALEMATE"
+
+                    selected = None
+
+                else:
+
+                    piece = board[row][col]
+
+                    if (
+                        piece != ""
+                        and piece_color(piece) == turn
+                    ):
+                        selected = (row,col)
+                    else:
+                        selected = None
+
+    draw_board(screen)
+
+    # خانه انتخاب شده
+    if selected is not None:
+
+        sr,sc = selected
+
+        pygame.draw.rect(
+            screen,
+            YELLOW,
+            (
+                sc * CELL,
+                sr * CELL,
+                CELL,
+                CELL
+            ),
+            5
+        )
+
+        # حرکت‌های قانونی
+        for r,c in legal_moves(sr,sc):
+
+            pygame.draw.circle(
+                screen,
+                GREEN,
+                (
+                    c * CELL + CELL // 2,
+                    r * CELL + CELL // 2
+                ),
+                9
+            )
+
+    # نمایش کیش
+    king_pos = find_king(turn)
+
+    if king_pos is not None and in_check(turn):
+
+        kr,kc = king_pos
+
+        pygame.draw.rect(
+            screen,
+            RED,
+            (
+                kc * CELL,
+                kr * CELL,
+                CELL,
+                CELL
+            ),
+            6
+        )
+
+    draw_pieces(screen)
+
+    pygame.display.flip()
+
+    clock.tick(60)
+
+
+pygame.quit()
